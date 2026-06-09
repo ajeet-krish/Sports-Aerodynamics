@@ -18,3 +18,4 @@ assets/*.gif
 
 # OS files
 .DS_Store
+build_notebook.py

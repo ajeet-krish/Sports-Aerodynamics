@@ -7,90 +7,69 @@ A single, narrative-driven Jupyter notebook demonstrating core CFD concepts usin
 ## Notebook Structure
 
 ```
-physics_of_play.ipynb
-├── 1. Title & Introduction               (markdown)
-├── 2. Governing Equations                 (markdown — Navier-Stokes, continuity, Re)
-├── 3. Imports & Backend                   (code — from phi.jax.flow import *)
-├── 4. Domain & Style                      (code — grid, dark theme, rcParams)
-├── 5. Visualization Helpers               (code — make_figure, save_animation)
-├── 6. Simulation Helpers                  (code — run_simulation)
-├── 7. Module 1: The World Cup Free-Kick   (markdown — header)
-│   ├── 8. Magnus simulation               (code — run sim, collect frames + forces)
-│   └── 9. Magnus animation + export       (code — FuncAnimation → magnus_effect.mp4)
-├── 10. Module 2: The Peloton              (markdown — header)
-│   ├── 11. Wake simulation (A/B/C)        (code — single, inline, echelon)
-│   └── 12. Wake animation + export        (code — comparison → wake_comparison.mp4)
-└── 13. Conclusion                         (markdown — drag table, summary)
+sports2.ipynb               # Clean notebook (11 cells, ~20KB)
+sports.ipynb                # Original notebook (kept for reference, ~285K lines)
 ```
+
+### Cell outline
+
+| # | Type | Content |
+|---|------|---------|
+| 0 | md | Title & Introduction |
+| 1 | md | Governing Equations (Navier-Stokes, continuity, Re) |
+| 2 | code | Imports (`from phi.jax.flow import *`), dark theme, rcParams |
+| 3 | md | Module 1 intro — Magnus effect, 8×4 domain, 256×128 grid |
+| 4 | code | Module 1 simulation — rotating cylinder `geom.Sphere`, 120 steps |
+| 5 | code | Module 1 pressure animation → `magnus_effect.mp4` |
+| 6 | code | Module 1 streamlines animation → `magnus_streamlines.mp4` |
+| 7 | md | Module 2 intro — Peloton drafting, 4×8 domain, 128×256 grid |
+| 8 | code | Module 2 simulation — 3 cases (solo/inline/echelon), rectangles |
+| 9 | code | Module 2 3-panel velocity animation → `wake_comparison.mp4` |
+| 10 | code | Module 2 3-panel streamlines animation → `wake_streamlines.mp4` |
 
 ## Key Technical Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Python version | 3.12 | Highest version both ΦFlow and JAX officially support |
-| Solver backend | JAX (CPU) | Performance on 128×256 grids, optional GPU support |
+| Solver backend | JAX (CPU) | Performance on grids, optional GPU support |
 | Package manager | uv | Fast, deterministic, single-command setup |
-| Visualization | matplotlib.animation.FuncAnimation | Dark theme, magma/inferno colormaps |
-| Athlete shapes | SVG path → binary mask | Clean, swappable, zero binary bloat in repo |
+| Visualization | matplotlib FuncAnimation | Dark theme, magma/inferno colormaps |
+| Module 1 grid | 256 × 128 (8×4 domain) | Wide rectangle, flow left→right, higher streamwise resolution |
+| Module 2 grid | 128 × 256 (4×8 domain) | Tall rectangle for drafting configuration |
+| Runner shape | `geom.Box` 0.3×0.5 | Rectangular torso cross-section |
 
 ## ΦFlow API Notes
 
-### Backend selection
-Use backend-specific import (NOT `phi.set_backend()`):
-```python
-from phi.jax.flow import *   # JAX mode
-# from phi.flow import *     # NumPy fallback
-```
+See `assets/AGENTS.md` for comprehensive API reference.
 
-### StaggeredGrid constructor
-```python
-StaggeredGrid((u, v), boundary_dict, x=nx, y=ny, bounds=geom.Box(...))
-```
-- 1st arg: tuple of velocity components (inflow values)
-- 2nd arg: dict of boundary conditions e.g. `{'x-': vec(x=1, y=0), 'x+': ZERO_GRADIENT, 'y': 0}`
-- `x=`, `y=`: grid resolution in cells
-- `bounds=`: physical domain extent
-
-### Obstacle rotation
-ΦFlow's `Obstacle(geometry, velocity=vec(x, y), angular_velocity=ω)` accepts `angular_velocity` directly — no manual tangential-velocity override needed. The solver enforces the rotating no-slip BC during `make_incompressible`.
-
-### Pressure projection
-Default `Solve()` (auto-detect CG) works reliably. For closed domains add `rank_deficiency=1`:
-```python
-v, p = fluid.make_incompressible(v, obstacle)           # open domain
-v, p = fluid.make_incompressible(v, obstacle, Solve(rank_deficiency=1))  # closed
-```
-The `scipy-direct` solver may diverge — prefer default auto-CG.
-
-### Extracting numpy arrays from fields
-```python
-p_np = p.values.native('x', 'y')
-vel_mag = field.vec_length(v)
-vel_np = vel_mag.values.native('x', 'y')
-```
-
-## Athlete Silhouette (SVG Path → Binary Mask)
-
-1. Hard-code SVG `<path d="..." />` string for runner profile
-2. Parse with `svg.path.parse_path(d_string)` → list of Bezier/Line segments
-3. Rasterize to binary mask at simulation grid resolution
-4. Wrap as `phi.geom.Geometry` for ΦFlow obstacle
-
-Fallback: geometric primitives (ellipse + rectangles) if SVG parsing proves fragile.
+### Quick reference
+- **Import**: `from phi.jax.flow import *`
+- **Scalar diffusion**: `diffuse.explicit(v, NU, DT)` from `phi.physics`
+- **Pressure projection**: `v, p = fluid.make_incompressible(v, obstacle)` — 2 return values
+- **Centered extraction**: `v @ CenteredGrid(0, x=256, y=128, bounds=BOX)` then `.vector[0|1].values.native("x", "y")`
+- **Transpose required**: `.T` for all arrays passed to matplotlib
 
 ## Project Structure
 
 ```
 Sports Aerodynamics/
-├── .python-version          # 3.12
-├── pyproject.toml           # uv-managed dependencies
-├── README.md                # Project overview + setup guide
-├── PLAN.md                  # This file
+├── .python-version            # 3.12
+├── pyproject.toml             # uv-managed dependencies
+├── README.md                  # Project overview + setup guide
+├── PLAN.md                    # This file
 ├── .gitignore
-├── assets/                  # Generated .mp4/.gif output
+├── build_notebook.py          # Generator script for sports2.ipynb
+├── sports.ipynb               # Original notebook (reference, ~285K lines)
+├── sports2.ipynb              # Clean notebook (11 cells)
+├── assets/
+│   ├── AGENTS.md              # API reference for future sessions
 │   ├── magnus_effect.mp4
-│   └── wake_comparison.mp4
-└── physics_of_play.ipynb    # Single monolithic notebook
+│   ├── magnus_streamlines.mp4
+│   ├── wake_comparison.mp4
+│   ├── wake_streamlines.mp4
+│   └── drag_comparison.png
+└── .venv/                     # Virtual environment
 ```
 
 ## Dependencies
@@ -102,7 +81,6 @@ Sports Aerodynamics/
 | `matplotlib` | — | Dark-theme animations, FuncAnimation → MP4 |
 | `numpy` | — | Array ops, mask construction, force integration |
 | `tqdm` | — | Progress bars in notebook |
-| `svg.path` | — | SVG path parsing for athlete silhouettes |
 | `jupyter` | — | Notebook runtime |
 | `ffmpeg` | system | MP4 encoding (via matplotlib writer) |
 
@@ -110,11 +88,11 @@ Sports Aerodynamics/
 
 ```bash
 uv sync
-uv run jupyter notebook physics_of_play.ipynb
+uv run jupyter notebook sports2.ipynb
 ```
 
 Or after activation:
 ```bash
 source .venv/bin/activate
-jupyter notebook physics_of_play.ipynb
+jupyter notebook sports2.ipynb
 ```
