@@ -12,8 +12,7 @@ wheels/
 # Jupyter
 .ipynb_checkpoints/
 
-# Generated assets (large binaries, regeneratable)
-assets/*.mp4
+# Generated GIFs (regeneratable, not tracked)
 assets/*.gif
 
 # OS files
@@ -21,10 +20,5 @@ assets/*.gif
 build_notebook.py
 .opencode/opencode.json
 .opencode/plugins/graphify.js
-graphify-out/.graphify_ast.json
-graphify-out/.graphify_detect.json
-graphify-out/.graphify_python
-graphify-out/.graphify_root
-graphify-out/.graphify_semantic.json
-graphify-out/.graphify_uncached.txt
-graphify-out/cache/stat-index.json
+
+graphify-out/
