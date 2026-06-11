@@ -4,7 +4,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.shot_aero import run_cylinder, animate_velocity_comparison, animate_pressure_comparison
-from src.tactical import run_tactical, run_macro_stress
+from src.tactical import run_tactical, run_macro_stress, run_team_heatmaps
 from phi.jax.flow import Obstacle, vec
 
 from src.domain import CYLINDER
@@ -42,6 +42,12 @@ def main():
     print("MACRO STRESS FIELD — 7v7 Tactical Continuum")
     print("=" * 60)
     run_macro_stress()
+
+    # ── Team Heatmaps ──
+    print("\n" + "=" * 60)
+    print("TEAM HEATMAPS — 11v11 Defensive Influence & Passing Lanes")
+    print("=" * 60)
+    run_team_heatmaps()
 
     print("\n" + "=" * 60)
     print("ALL SIMULATIONS COMPLETE")

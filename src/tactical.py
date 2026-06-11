@@ -1,4 +1,4 @@
-"""Tactical Positioning — 3 formation cases + 7v7 Macro Stress Field."""
+"""Tactical Positioning — 3 formation cases + 7v7 Macro Stress Field + 11v11 Team Heatmaps."""
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,7 +13,7 @@ setup_theme()
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Ellipse
+from matplotlib.patches import Ellipse, Circle, Rectangle
 from tqdm import trange
 
 
@@ -261,13 +261,16 @@ def run_tactical():
     return frames_c1, frames_c2, frames_c3
 
 
-# ── Macro Stress Field ──
+# ── Macro Stress Field (Continuum Mechanics) ──
 
-PITCH_W, PITCH_H = 10.0, 7.0
-NX_S, NY_S = 248, 186
+PITCH_W_S, PITCH_H_S = 10.5, 6.8
+NX_S, NY_S = 336, 218
 N_FRAMES = 60
 SIGMA_X, SIGMA_Y = 0.50, 0.35
 VEL_STRETCH = 0.12
+
+_SX = PITCH_W_S / 10.0
+_SY = PITCH_H_S / 7.0
 
 
 def gaussian_stress(xx, yy, cx, cy, vx, vy, sx_base, sy_base, stretch):
@@ -284,23 +287,38 @@ def gaussian_stress(xx, yy, cx, cy, vx, vy, sx_base, sy_base, stretch):
     return np.exp(-0.5 * (a * dx**2 + 2 * b * dx * dy + c * dy**2))
 
 
+def detect_yield_points(stress_field, threshold=0.4):
+    h, w = stress_field.shape
+    mx = np.ones_like(stress_field, dtype=bool)
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[:-2, 1:-1]
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[2:, 1:-1]
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[1:-1, :-2]
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[1:-1, 2:]
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[:-2, :-2]
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[2:, 2:]
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[:-2, 2:]
+    mx[1:-1, 1:-1] &= stress_field[1:-1, 1:-1] >= stress_field[2:, :-2]
+    mx &= stress_field > threshold
+    return np.argwhere(mx)
+
+
 def run_macro_stress():
-    x = np.linspace(0, PITCH_W, NX_S)
-    y = np.linspace(0, PITCH_H, NY_S)
+    x = np.linspace(0, PITCH_W_S, NX_S)
+    y = np.linspace(0, PITCH_H_S, NY_S)
     XX, YY = np.meshgrid(x, y, indexing="ij")
 
     attack_start = np.array([
         [2.0, 3.5], [1.5, 5.2], [1.5, 1.8], [1.2, 4.2], [1.2, 2.8], [0.5, 5.8], [0.5, 1.2],
-    ])
+    ]) * [_SX, _SY]
     attack_end = np.array([
         [6.0, 3.5], [5.8, 5.8], [5.8, 1.2], [4.5, 4.5], [4.5, 2.5], [2.5, 5.8], [2.5, 1.2],
-    ])
+    ]) * [_SX, _SY]
     defend_start = np.array([
         [6.0, 3.5], [6.0, 4.8], [6.0, 2.2], [6.8, 3.5], [6.8, 5.5], [6.8, 1.5], [7.8, 3.5],
-    ])
+    ]) * [_SX, _SY]
     defend_end = np.array([
         [4.2, 3.5], [4.2, 4.5], [4.2, 2.5], [5.0, 3.5], [5.0, 5.2], [5.0, 1.8], [6.2, 3.5],
-    ])
+    ]) * [_SX, _SY]
 
     t_frac = np.linspace(0, 1, N_FRAMES)
     eased = np.sin(np.pi * t_frac / 2)
@@ -312,6 +330,7 @@ def run_macro_stress():
 
     print("Computing stress fields...")
     fields = []
+    yield_points = []
     for frame in trange(N_FRAMES):
         attack_field = np.zeros((NX_S, NY_S))
         defend_field = np.zeros((NX_S, NY_S))
@@ -322,84 +341,377 @@ def run_macro_stress():
             dx, dy = defend_pos[frame, p, 0], defend_pos[frame, p, 1]
             dvx, dvy = defend_vel[frame, p, 0], defend_vel[frame, p, 1]
             defend_field += gaussian_stress(XX, YY, dx, dy, dvx, dvy, SIGMA_X, SIGMA_Y, VEL_STRETCH)
-        fields.append(np.tanh((attack_field - defend_field) / 3.0))
+        stress = np.tanh((attack_field - defend_field) / 3.0)
+        fields.append(stress)
+        yield_points.append(detect_yield_points(stress, threshold=0.4))
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6), facecolor="#111111")
-    fig.suptitle("The Tactical Continuum — 7v7 Macro Stress Field", color="white", fontsize=15, y=0.98)
     vmin, vmax = -1.0, 1.0
+    levels = np.linspace(vmin, vmax, 40)
 
-    # Panel 1
+    # ── Static 2-Panel ──
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), facecolor="#111111")
+    fig.suptitle("Tactical Stress Fields — Continuum Mechanics of 7v7",
+                 color="white", fontsize=14, y=0.98)
+
     ax0 = axes[0]
     ax0.set_facecolor("#111111")
-    ax0.set_title("Initial Positioning (Frame 0)", color="white", fontsize=10)
-    ax0.set_xlim(0, PITCH_W); ax0.set_ylim(0, PITCH_H); ax0.set_aspect("equal")
-    ax0.scatter(attack_pos[0, :, 0], attack_pos[0, :, 1], c="red", s=40, label="Attack", edgecolors="white")
-    ax0.scatter(defend_pos[0, :, 0], defend_pos[0, :, 1], c="blue", s=40, label="Defend", edgecolors="white")
-    ax0.legend(loc="upper right", facecolor="#111111", labelcolor="white")
+    draw_pitch(ax0)
+    contour = ax0.contourf(x, y, fields[0].T, levels=levels,
+                           cmap="coolwarm", vmin=vmin, vmax=vmax, extend="both")
+    ax0.contour(x, y, fields[0].T, levels=[0.0], colors="white", linewidths=2.0)
+    ax0.scatter(attack_pos[0, :, 0], attack_pos[0, :, 1], c="white", s=35,
+                edgecolors="#e74c3c", linewidths=1.2, zorder=5)
+    ax0.scatter(defend_pos[0, :, 0], defend_pos[0, :, 1], c="white", s=35,
+                edgecolors="#3498db", linewidths=1.2, zorder=5)
+    ax0.set_xlim(0, PITCH_W_S)
+    ax0.set_ylim(0, PITCH_H_S)
+    ax0.set_aspect("equal")
+    ax0.set_title("Stress Field Interface", color="white", fontsize=11)
+    ax0.text(0.02, 0.98, "Two-phase flow interface — zero-stress contour is the equilibrium\n"
+                         "boundary where attacking and defensive stress fields balance",
+             color="white", fontsize=8, alpha=0.85, transform=ax0.transAxes, va="top")
+    ax0.text(0.02, 0.04, "Attack ○   Defence ○", color="white", fontsize=8,
+             transform=ax0.transAxes, va="bottom")
 
-    # Panel 2
     ax1 = axes[1]
     ax1.set_facecolor("#111111")
-    ax1.set_title("Tactical Stress Field", color="white", fontsize=10)
-    ax1.set_xlabel("x (m)"); ax1.set_ylabel("y (m)")
-    ax1.set_xlim(0, PITCH_W); ax1.set_ylim(0, PITCH_H); ax1.set_aspect("equal")
-    contour = ax1.contourf(x, y, fields[0].T, levels=32, cmap="RdBu_r", vmin=vmin, vmax=vmax)
+    draw_pitch(ax1)
+    ax1.contourf(x, y, fields[0].T, levels=levels,
+                 cmap="coolwarm", vmin=vmin, vmax=vmax, extend="both")
     ax1.contour(x, y, fields[0].T, levels=[0.0], colors="white", linewidths=2.0)
+    ax1.quiver(attack_pos[0, :, 0], attack_pos[0, :, 1],
+               attack_vel[0, :, 0], attack_vel[0, :, 1],
+               color="#e74c3c", scale=1.0, width=0.015, alpha=0.9)
+    ax1.quiver(defend_pos[0, :, 0], defend_pos[0, :, 1],
+               defend_vel[0, :, 0], defend_vel[0, :, 1],
+               color="#3498db", scale=1.0, width=0.015, alpha=0.9)
 
-    # Panel 3
-    ax2 = axes[2]
-    ax2.set_facecolor("#111111")
-    ax2.set_title("Player Vectors & Stress", color="white", fontsize=10)
-    ax2.set_xlabel("x (m)"); ax2.set_ylabel("y (m)")
-    ax2.set_xlim(0, PITCH_W); ax2.set_ylim(0, PITCH_H); ax2.set_aspect("equal")
-    ax2.contourf(x, y, fields[0].T, levels=32, cmap="RdBu_r", vmin=vmin, vmax=vmax)
-    ax2.contour(x, y, fields[0].T, levels=[0.0], colors="white", linewidths=2.0)
-    ax2.quiver(attack_pos[0, :, 0], attack_pos[0, :, 1], attack_vel[0, :, 0], attack_vel[0, :, 1],
-               color="red", scale=1.0, width=0.015, alpha=0.8)
-    ax2.quiver(defend_pos[0, :, 0], defend_pos[0, :, 1], defend_vel[0, :, 0], defend_vel[0, :, 1],
-               color="blue", scale=1.0, width=0.015, alpha=0.8)
+    if len(yield_points[0]) > 0:
+        yx = x[yield_points[0][:, 0]]
+        yy_p = y[yield_points[0][:, 1]]
+        ax1.scatter(yx, yy_p, c="none", s=80, marker="X",
+                    edgecolors="#f1c40f", linewidths=1.5, zorder=6)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.93])
-    cbar_ax = fig.add_axes([0.92, 0.12, 0.012, 0.76])
+    ax1.set_xlim(0, PITCH_W_S)
+    ax1.set_ylim(0, PITCH_H_S)
+    ax1.set_aspect("equal")
+    ax1.set_title("Vectors & Von Mises Yield", color="white", fontsize=11)
+    ax1.text(0.02, 0.98, "Von Mises yield criterion — stress concentrations (yellow X)\n"
+                         "indicate localised structural failure in the defensive block",
+             color="white", fontsize=8, alpha=0.85, transform=ax1.transAxes, va="top")
+
+    fig.tight_layout(rect=[0, 0, 0.92, 0.93])
+    cbar_ax = fig.add_axes([0.93, 0.12, 0.012, 0.76])
     cbar = fig.colorbar(contour, cax=cbar_ax)
-    cbar.set_label("Stress (Attack − Defence)", color="white")
+    cbar.set_label("Stress σ = Attack − Defence", color="white")
     cbar.ax.yaxis.set_tick_params(color="white")
     plt.setp(plt.getp(cbar.ax.axes, "yticklabels"), color="white")
 
+    path = ASSETS / "stress_field.png"
+    fig.savefig(str(path), dpi=150, bbox_inches="tight", facecolor="#111111")
+    print(f"Saved {path}")
+    plt.close(fig)
+
+    # ── Animation ──
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), facecolor="#111111")
+    fig.suptitle("Tactical Stress Fields — 7v7 Continuum Mechanics",
+                 color="white", fontsize=14, y=0.98)
+
     def update(idx):
         for ax in axes:
-            ax.clear(); ax.set_facecolor("#111111")
-            ax.set_xlim(0, PITCH_W); ax.set_ylim(0, PITCH_H); ax.set_aspect("equal")
+            ax.clear()
+            ax.set_facecolor("#111111")
 
-        axes[0].set_title(f"Player Positions (Frame {idx})", color="white", fontsize=10)
-        axes[0].scatter(attack_pos[idx, :, 0], attack_pos[idx, :, 1], c="red", s=50, edgecolors="white", zorder=5)
-        axes[0].scatter(defend_pos[idx, :, 0], defend_pos[idx, :, 1], c="blue", s=50, edgecolors="white", zorder=5)
+        ax0 = axes[0]
+        draw_pitch(ax0)
+        ax0.contourf(x, y, fields[idx].T, levels=levels,
+                     cmap="coolwarm", vmin=vmin, vmax=vmax, extend="both")
+        ax0.contour(x, y, fields[idx].T, levels=[0.0], colors="white", linewidths=2.0)
+        ax0.scatter(attack_pos[idx, :, 0], attack_pos[idx, :, 1], c="white", s=35,
+                    edgecolors="#e74c3c", linewidths=1.2, zorder=5)
+        ax0.scatter(defend_pos[idx, :, 0], defend_pos[idx, :, 1], c="white", s=35,
+                    edgecolors="#3498db", linewidths=1.2, zorder=5)
+        ax0.set_xlim(0, PITCH_W_S)
+        ax0.set_ylim(0, PITCH_H_S)
+        ax0.set_aspect("equal")
+        pct = idx / (N_FRAMES - 1) * 100
+        ax0.set_title(f"Frame {idx} — Interface Evolution ({pct:.0f}%)", color="white", fontsize=11)
 
-        axes[1].set_title("Tactical Stress Field", color="white", fontsize=10)
-        axes[1].set_xlabel("x (m)"); axes[1].set_ylabel("y (m)")
-        axes[1].contourf(x, y, fields[idx].T, levels=32, cmap="RdBu_r", vmin=vmin, vmax=vmax)
-        axes[1].contour(x, y, fields[idx].T, levels=[0.0], colors="white", linewidths=2.0)
+        ax1 = axes[1]
+        draw_pitch(ax1)
+        ax1.contourf(x, y, fields[idx].T, levels=levels,
+                     cmap="coolwarm", vmin=vmin, vmax=vmax, extend="both")
+        ax1.contour(x, y, fields[idx].T, levels=[0.0], colors="white", linewidths=2.0)
+        ax1.quiver(attack_pos[idx, :, 0], attack_pos[idx, :, 1],
+                   attack_vel[idx, :, 0], attack_vel[idx, :, 1],
+                   color="#e74c3c", scale=1.0, width=0.015, alpha=0.9)
+        ax1.quiver(defend_pos[idx, :, 0], defend_pos[idx, :, 1],
+                   defend_vel[idx, :, 0], defend_vel[idx, :, 1],
+                   color="#3498db", scale=1.0, width=0.015, alpha=0.9)
 
-        axes[2].set_title("Player Vectors & Stress", color="white", fontsize=10)
-        axes[2].set_xlabel("x (m)"); axes[2].set_ylabel("y (m)")
-        axes[2].contourf(x, y, fields[idx].T, levels=32, cmap="RdBu_r", vmin=vmin, vmax=vmax)
-        axes[2].contour(x, y, fields[idx].T, levels=[0.0], colors="white", linewidths=2.0)
-        axes[2].quiver(attack_pos[idx, :, 0], attack_pos[idx, :, 1], attack_vel[idx, :, 0], attack_vel[idx, :, 1],
-                       color="red", scale=1.0, width=0.015, alpha=0.8)
-        axes[2].quiver(defend_pos[idx, :, 0], defend_pos[idx, :, 1], defend_vel[idx, :, 0], defend_vel[idx, :, 1],
-                       color="blue", scale=1.0, width=0.015, alpha=0.8)
+        if len(yield_points[idx]) > 0:
+            yx = x[yield_points[idx][:, 0]]
+            yy_p = y[yield_points[idx][:, 1]]
+            ax1.scatter(yx, yy_p, c="none", s=80, marker="X",
+                        edgecolors="#f1c40f", linewidths=1.5, zorder=6)
 
-        fig.suptitle(f"The Tactical Continuum — Frame {idx}/60  (t = {idx * 0.1:.1f}s)",
+        ax1.set_xlim(0, PITCH_W_S)
+        ax1.set_ylim(0, PITCH_H_S)
+        ax1.set_aspect("equal")
+        ax1.set_title(f"Frame {idx} — Yield & Breach Points", color="white", fontsize=11)
+
+        fig.suptitle(f"Tactical Stress Fields — Frame {idx}/{N_FRAMES - 1}  (t = {idx * 0.1:.1f}s)",
                      color="white", fontsize=14, y=0.98)
         return axes
 
-    anim = FuncAnimation(fig, update, frames=N_FRAMES, interval=100, blit=False)
-    path = ASSETS / "tactical_continuum.mp4"
-    anim.save(str(path), writer="ffmpeg", fps=10, dpi=150)
+    anim = FuncAnimation(fig, update, frames=N_FRAMES, interval=80, blit=False)
+    path = ASSETS / "stress_field_continuum.mp4"
+    anim.save(str(path), writer="ffmpeg", fps=12, dpi=150)
     print(f"Saved {path}")
     plt.close(fig)
+
+
+# ═══════════════════════════════════════════════════════════
+# Section 2 — Team Heatmaps (11v11)
+# ═══════════════════════════════════════════════════════════
+
+PITCH_W_T, PITCH_H_T = 10.5, 6.8
+NX_T, NY_T = 336, 218
+SIGMA_T_X, SIGMA_T_Y = 0.80, 0.55
+INFLUENCE_THRESHOLD = 0.50
+N_COLLAPSE_FRAMES = 60
+
+# ── Formation definitions ──
+# All 11 positions: GK first, then outfield
+
+F4231_HIGH = np.array([
+    [10.0, 3.4],
+    [8.0,  0.4],
+    [8.5,  2.0],
+    [8.5,  4.8],
+    [8.0,  6.4],
+    [7.0,  1.2],
+    [7.0,  5.6],
+    [6.0,  0.2],
+    [6.0,  3.4],
+    [6.0,  6.6],
+    [4.5,  3.4],
+])
+
+F4231_LOW = np.array([
+    [10.2, 3.4],
+    [9.0,  1.6],
+    [9.2,  2.6],
+    [9.2,  4.2],
+    [9.0,  5.2],
+    [8.2,  2.2],
+    [8.2,  4.6],
+    [7.5,  1.6],
+    [7.5,  3.4],
+    [7.5,  5.2],
+    [6.0,  3.4],
+])
+
+F532 = np.array([
+    [10.2, 3.4],
+    [8.0,  1.4],
+    [9.0,  2.2],
+    [9.0,  3.4],
+    [9.0,  4.6],
+    [8.0,  5.4],
+    [8.0,  2.0],
+    [8.0,  3.4],
+    [8.0,  4.8],
+    [6.5,  2.4],
+    [6.5,  4.4],
+])
+
+
+def draw_pitch(ax, color="#555555", lw=0.6):
+    PW, PH = PITCH_W_T, PITCH_H_T
+
+    ax.plot([0, PW, PW, 0, 0], [0, 0, PH, PH, 0], color=color, lw=lw)
+
+    ax.axvline(PW / 2, color=color, lw=lw)
+
+    ax.add_patch(Circle((PW / 2, PH / 2), 0.915, color=color, fill=False, lw=lw))
+
+    pa_w, pa_h = 1.65, 4.03
+    pa_y = (PH - pa_h) / 2
+    ax.add_patch(Rectangle((0, pa_y), pa_w, pa_h, color=color, fill=False, lw=lw))
+    ax.add_patch(Rectangle((PW - pa_w, pa_y), pa_w, pa_h, color=color, fill=False, lw=lw))
+
+    ga_w, ga_h = 0.55, 1.83
+    ga_y = (PH - ga_h) / 2
+    ax.add_patch(Rectangle((0, ga_y), ga_w, ga_h, color=color, fill=False, lw=lw))
+    ax.add_patch(Rectangle((PW - ga_w, ga_y), ga_w, ga_h, color=color, fill=False, lw=lw))
+
+    goal_w, goal_h = 0.15, 0.732
+    goal_y = (PH - goal_h) / 2
+    ax.add_patch(Rectangle((-goal_w, goal_y), goal_w, goal_h, color=color, fill=False, lw=lw * 1.5))
+    ax.add_patch(Rectangle((PW, goal_y), goal_w, goal_h, color=color, fill=False, lw=lw * 1.5))
+
+
+def compute_influence_field(xx, yy, positions, sigma_x=SIGMA_T_X, sigma_y=SIGMA_T_Y):
+    field = np.zeros_like(xx)
+    for cx, cy in positions:
+        field += np.exp(-0.5 * ((xx - cx)**2 / sigma_x**2 + (yy - cy)**2 / sigma_y**2))
+    return field
+
+
+def compute_permeability(field, threshold=INFLUENCE_THRESHOLD):
+    return np.sum(field < threshold) / field.size * 100
+
+
+# ── Bucket C: Static 2-Panel Comparison ──
+
+def plot_team_heatmaps():
+    print("── Team Heatmaps — Static Comparison ──")
+    x = np.linspace(0, PITCH_W_T, NX_T)
+    y = np.linspace(0, PITCH_H_T, NY_T)
+    XX, YY = np.meshgrid(x, y, indexing="ij")
+
+    formations = [
+        (F4231_HIGH, "4-2-3-1 — Dispersed Block", "Darcy Regime: High permeability, wide passing channels open between players"),
+        (F532, "5-3-2 — Compact Block", "Choked Flow: Low permeability, passing lanes constricted by narrow defensive spacing"),
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), facecolor="#111111")
+    fig.suptitle("11v11 Defensive Influence Fields — Heatmap & Passing Lane Analysis",
+                 color="white", fontsize=14, y=0.98)
+
+    vmin, vmax = 0.0, 4.0
+    levels = np.linspace(vmin, vmax, 50)
+
+    for ax, (pos, label, caption) in zip(axes, formations):
+        field = compute_influence_field(XX, YY, pos)
+        # Permeability within defensive half only (x > 5.25)
+        half_mask = XX > PITCH_W_T / 2
+        perm = np.sum(field[half_mask] < INFLUENCE_THRESHOLD) / np.sum(half_mask) * 100
+
+        ax.set_facecolor("#111111")
+        draw_pitch(ax)
+
+        cf = ax.contourf(x, y, field.T, levels=levels, cmap="plasma", vmin=vmin, vmax=vmax, extend="max")
+
+        cs = ax.contour(x, y, field.T, levels=[INFLUENCE_THRESHOLD],
+                        colors="cyan", linewidths=1.5, alpha=0.8,
+                        linestyles="dashed")
+        ax.clabel(cs, fmt="%.2f", colors="cyan", fontsize=7, inline=True)
+
+        ax.scatter(pos[1:, 0], pos[1:, 1], c="white", s=35,
+                   edgecolors="black", linewidths=0.5, zorder=5)
+        ax.scatter([pos[0, 0]], [pos[0, 1]], c="gold", s=30,
+                   marker="*", edgecolors="black", linewidths=0.5, zorder=5)
+
+        ax.set_xlim(0, PITCH_W_T)
+        ax.set_ylim(0, PITCH_H_T)
+        ax.set_aspect("equal")
+        ax.set_title(label, color="white", fontsize=11)
+
+        ax.text(0.02, 0.98, caption, color="cyan", fontsize=8, alpha=0.85,
+                transform=ax.transAxes, va="top")
+        ax.text(0.02, 0.92, f"Defensive half: {perm:.0f}% open space",
+                color="white", fontsize=9, transform=ax.transAxes, va="top")
+
+    fig.tight_layout(rect=[0, 0, 0.92, 0.93])
+    cbar_ax = fig.add_axes([0.93, 0.12, 0.012, 0.76])
+    cbar = fig.colorbar(cf, cax=cbar_ax)
+    cbar.set_label("Defensive Influence", color="white")
+    cbar.ax.yaxis.set_tick_params(color="white")
+    plt.setp(plt.getp(cbar.ax.axes, "yticklabels"), color="white")
+
+    path = ASSETS / "team_heatmaps.png"
+    fig.savefig(str(path), dpi=150, bbox_inches="tight", facecolor="#111111")
+    print(f"Saved {path}")
+    plt.close(fig)
+
+
+# ── Buckets D & E: Collapse Animation + Metrics ──
+
+def animate_team_collapse():
+    print("── Team Heatmaps — Defensive Collapse Animation ──")
+    x = np.linspace(0, PITCH_W_T, NX_T)
+    y = np.linspace(0, PITCH_H_T, NY_T)
+    XX, YY = np.meshgrid(x, y, indexing="ij")
+
+    t_frac = np.linspace(0, 1, N_COLLAPSE_FRAMES)
+    positions_seq = F4231_HIGH[np.newaxis] + t_frac[:, np.newaxis, np.newaxis] * (F4231_LOW - F4231_HIGH)[np.newaxis]
+
+    print("Computing collapse fields...")
+    half_mask = XX > PITCH_W_T / 2
+    fields = []
+    perm_series = []
+    for frame in trange(N_COLLAPSE_FRAMES):
+        field = compute_influence_field(XX, YY, positions_seq[frame])
+        fields.append(field)
+        perm_series.append(np.sum(field[half_mask] < INFLUENCE_THRESHOLD) / np.sum(half_mask) * 100)
+
+    vmin, vmax = 0.0, 4.0
+    levels = np.linspace(vmin, vmax, 50)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), facecolor="#111111",
+                             gridspec_kw={"width_ratios": [2, 1]})
+    fig.suptitle("Defensive Collapse — 4-2-3-1 Low Block Transition",
+                 color="white", fontsize=14, y=0.98)
+
+    def update(idx):
+        for ax in axes:
+            ax.clear()
+            ax.set_facecolor("#111111")
+
+        ax0 = axes[0]
+        half_mask = XX > PITCH_W_T / 2
+
+        draw_pitch(ax0)
+        cf = ax0.contourf(x, y, fields[idx].T, levels=levels,
+                          cmap="plasma", vmin=vmin, vmax=vmax, extend="max")
+        cs = ax0.contour(x, y, fields[idx].T, levels=[INFLUENCE_THRESHOLD],
+                         colors="cyan", linewidths=1.5, alpha=0.8,
+                         linestyles="dashed")
+
+        pos = positions_seq[idx]
+        ax0.scatter(pos[1:, 0], pos[1:, 1], c="white", s=35,
+                    edgecolors="black", linewidths=0.5, zorder=5)
+        ax0.scatter([pos[0, 0]], [pos[0, 1]], c="gold", s=30,
+                    marker="*", edgecolors="black", linewidths=0.5, zorder=5)
+
+        ax0.set_xlim(0, PITCH_W_T)
+        ax0.set_ylim(0, PITCH_H_T)
+        ax0.set_aspect("equal")
+        pct = idx / (N_COLLAPSE_FRAMES - 1) * 100
+        ax0.set_title(f"Collapse: {pct:.0f}% — 4-2-3-1", color="white", fontsize=11)
+
+        ax1 = axes[1]
+        ax1.plot(t_frac[:idx + 1], perm_series[:idx + 1], color="cyan", lw=2)
+        ax1.set_xlim(0, 1)
+        y_max = max(perm_series) * 1.15
+        ax1.set_ylim(0, max(y_max, 5))
+        ax1.set_xlabel("Collapse Progress", color="white")
+        ax1.set_ylabel("Open Space (%) in Defensive Half", color="white")
+        ax1.set_title("Permeability (Darcy Flux Analog)", color="white", fontsize=10)
+        ax1.grid(alpha=0.2)
+        ax1.scatter([t_frac[idx]], [perm_series[idx]], color="cyan", s=40, zorder=5)
+        ax1.text(0.5, 0.9, f"{perm_series[idx]:.0f}% open", color="cyan", fontsize=11,
+                 ha="center", transform=ax1.transAxes)
+
+        return axes
+
+    anim = FuncAnimation(fig, update, frames=N_COLLAPSE_FRAMES, interval=80, blit=False)
+    path = ASSETS / "defensive_collapse.mp4"
+    anim.save(str(path), writer="ffmpeg", fps=12, dpi=150)
+    print(f"Saved {path}")
+    plt.close(fig)
+
+
+# ── Orchestrator ──
+
+def run_team_heatmaps():
+    plot_team_heatmaps()
+    animate_team_collapse()
 
 
 if __name__ == "__main__":
     run_tactical()
     run_macro_stress()
+    run_team_heatmaps()

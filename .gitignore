@@ -10,15 +10,21 @@ wheels/
 .venv
 
 # Jupyter
-.ipynb_checkpoints/
+*.ipynb
 
 # Generated GIFs (regeneratable, not tracked)
 assets/*.gif
 
 # OS files
 .DS_Store
-build_notebook.py
 .opencode/opencode.json
 .opencode/plugins/graphify.js
 
 graphify-out/
+/.quarto/
+**/*.quarto_ipynb
+
+docs/site_libs
+docs/search.json
+
+.opencode/
